@@ -37,7 +37,6 @@ class IsarEvent {
               })
               .where((element) => element.isNotEmpty)
               .toList();
-      print("tagIndexList $tagIndexList");
     }
 
     final event =

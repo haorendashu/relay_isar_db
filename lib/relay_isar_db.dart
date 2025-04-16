@@ -1,12 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:isar/isar.dart';
 import 'package:nostr_sdk/relay_local/relay_db_extral.dart';
 import 'package:nostr_sdk/utils/db_util.dart';
+import 'package:nostr_sdk/utils/later_function.dart';
 import 'package:nostr_sdk/utils/string_util.dart';
 import 'package:relay_isar_db/isar_event.dart';
 
-class RelayIsarDb extends RelayDBExtral {
+class RelayIsarDb extends RelayDBExtral with LaterFunction {
   static const _dbName = "iasr_db";
 
   Isar isar;
@@ -17,6 +19,11 @@ class RelayIsarDb extends RelayDBExtral {
     var path = await getFilepath();
     print("path $path");
 
+    Directory dir = Directory(path);
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+
     final isar = await Isar.open([IsarEventSchema], directory: path);
 
     return RelayIsarDb._(isar);
@@ -26,11 +33,45 @@ class RelayIsarDb extends RelayDBExtral {
     return await DBUtil.getPath(_dbName);
   }
 
+  // a eventId map in mem, to avoid alway insert event.
+  Map<String, int> _memEventIdMap = {};
+
+  bool checkAndSetEventFromMem(Map<String, dynamic> event) {
+    var id = event["id"];
+    var value = _memEventIdMap[id];
+    _memEventIdMap[id] = 1;
+    return value != null;
+  }
+
+  List<IsarEvent> penddingEventMspList = [];
+
   @override
   Future<int> addEvent(Map<String, dynamic> event) async {
+    if (checkAndSetEventFromMem(event)) {
+      return 0;
+    }
+
     var e = IsarEvent.loadFromMap(event);
-    isar.isarEvents.put(e);
-    return 1;
+    penddingEventMspList.add(e);
+    later(_batchAddEvents);
+
+    return 0;
+  }
+
+  Future<void> _batchAddEvents() async {
+    if (penddingEventMspList.isEmpty) {
+      return;
+    }
+
+    // clone list to avoid modify the list in batch add events.
+    var currentList = [...penddingEventMspList];
+    // clear pendding list
+    penddingEventMspList.clear();
+
+    // batch add events
+    await isar.writeTxn(() async {
+      await isar.isarEvents.putAll(currentList);
+    });
   }
 
   @override
@@ -40,77 +81,89 @@ class RelayIsarDb extends RelayDBExtral {
 
   @override
   Future<void> deleteData({String? pubkey}) async {
-    if (StringUtil.isNotBlank(pubkey)) {
-      await isar.isarEvents.filter().pubkeyEqualTo(pubkey!).deleteAll();
-    } else {
-      await isar.isarEvents.clear();
-    }
+    await isar.writeTxn(() async {
+      if (StringUtil.isNotBlank(pubkey)) {
+        await isar.isarEvents.filter().pubkeyEqualTo(pubkey!).deleteAll();
+      } else {
+        await isar.isarEvents.clear();
+      }
+    });
   }
 
   @override
   Future<void> deleteEvent(String pubkey, String id) async {
-    await isar.isarEvents.delete(IsarEvent.fastHash(id));
+    await isar.writeTxn(() async {
+      await isar.isarEvents.delete(IsarEvent.fastHash(id));
+    });
   }
 
   @override
   Future<void> deleteEventByKind(String pubkey, int eventKind) async {
-    await isar.isarEvents
-        .filter()
-        .kindEqualTo(eventKind)
-        .pubkeyEqualTo(pubkey)
-        .deleteAll();
+    await isar.writeTxn(() async {
+      await isar.isarEvents
+          .filter()
+          .kindEqualTo(eventKind)
+          .pubkeyEqualTo(pubkey)
+          .deleteAll();
+    });
   }
 
   @override
   Future<int?> doQueryCount(Map<String, dynamic> filter) async {
-    var query = isar.isarEvents.where();
-    handleQueryFilter(query, filter, true);
-    return await query.count();
+    filter = Map<String, dynamic>.from(filter);
+    var qbi = QueryBuilderInternal<IsarEvent>(collection: isar.isarEvents);
+    qbi = handleQueryFilter(filter, qbi);
+    return await qbi.build<IsarEvent>().count();
   }
 
   @override
   Future<List<Map<String, Object?>>> doQueryEvent(
     Map<String, dynamic> filter,
   ) async {
-    var query = isar.isarEvents.where();
-    handleQueryFilter(query, filter, false);
+    var filter2 = Map<String, dynamic>.from(filter);
+    var limit = filter2.remove("limit");
+    limit ??= 100;
 
-    final events = await query.findAll();
+    var qbi = QueryBuilderInternal<IsarEvent>(
+      collection: isar.isarEvents,
+      limit: limit,
+    );
+    qbi = qbi.addSortBy(r'createdAt', Sort.desc);
+
+    qbi = handleQueryFilter(filter2, qbi);
+
+    final events = await qbi.build<IsarEvent>().findAll();
+    // print(filter);
+    // print("events count ${events.length}");
     return handleQueryResult(events);
   }
 
-  void handleQueryFilter(
-    QueryBuilder<IsarEvent, IsarEvent, QWhere> qWhereBuilder,
-    Map<String, dynamic> filter,
-    bool doCount,
-  ) {
-    filter = Map<String, dynamic>.from(filter);
+  FilterGroup _genInQuery(List<dynamic> values, String property) {
+    List<FilterOperation> filterList = [];
 
-    var key = "limit";
-    var limit = filter[key];
-    filter.remove(key);
-    if (doCount) {
-      // doCount, don't need to limit
-    } else {
-      // un doCount, must limit and sort by desc
-      qWhereBuilder.sortByCreatedAtDesc();
-
-      if (limit != null && limit > 0) {
-        qWhereBuilder.limit(limit as int);
-      } else {
-        qWhereBuilder.limit(100); // This is a default num.
-      }
+    for (var value in values) {
+      filterList.add(FilterCondition.equalTo(property: property, value: value));
     }
 
-    var queryBuilder = qWhereBuilder.filter();
+    return FilterGroup(type: FilterGroupType.or, filters: filterList);
+  }
 
-    key = "ids";
+  QueryBuilderInternal<IsarEvent> handleQueryFilter(
+    Map<String, dynamic> filter,
+    QueryBuilderInternal<IsarEvent> queryBuilderInternal,
+  ) {
+    // var queryBuilder = isar.isarEvents.filter();
+    // queryBuilderInternal.addSortBy(r'createdAt', Sort.desc);
+
+    var key = "ids";
     if (filter[key] != null && filter[key] is List && filter[key].isNotEmpty) {
       final ids = filter['ids'] as List;
+
       if (ids.isNotEmpty) {
-        queryBuilder.group((q) {
-          return q.anyOf(ids, (q, id) => q.idEqualTo(id as String));
-        });
+        var filterGroup = _genInQuery(ids, r'id');
+        queryBuilderInternal = queryBuilderInternal.addFilterCondition(
+          filterGroup,
+        );
       }
 
       filter.remove(key);
@@ -120,12 +173,16 @@ class RelayIsarDb extends RelayDBExtral {
     if (filter[key] != null && filter[key] is List && filter[key]!.isNotEmpty) {
       final authors = filter['authors'] as List;
       if (authors.isNotEmpty) {
-        queryBuilder.group((q) {
-          return q.anyOf(
-            authors,
-            (q, author) => q.pubkeyEqualTo(author as String),
-          );
-        });
+        var filterGroup = _genInQuery(authors, r'pubkey');
+        queryBuilderInternal = queryBuilderInternal.addFilterCondition(
+          filterGroup,
+        );
+        // queryBuilder = queryBuilder.group((q) {
+        //   return q.anyOf(
+        //     authors,
+        //     (q, author) => q.pubkeyEqualTo(author as String),
+        //   );
+        // });
       }
 
       filter.remove(key);
@@ -135,9 +192,13 @@ class RelayIsarDb extends RelayDBExtral {
     if (filter[key] != null && filter[key] is List && filter[key]!.isNotEmpty) {
       final kinds = filter['kinds'] as List;
       if (kinds.isNotEmpty) {
-        queryBuilder.group((q) {
-          return q.anyOf(kinds, (q, kind) => q.kindEqualTo(kind as int));
-        });
+        var filterGroup = _genInQuery(kinds, r'kind');
+        queryBuilderInternal = queryBuilderInternal.addFilterCondition(
+          filterGroup,
+        );
+        // queryBuilder = queryBuilder.group((q) {
+        //   return q.anyOf(kinds, (q, kind) => q.kindEqualTo(kind as int));
+        // });
       }
 
       filter.remove(key);
@@ -145,17 +206,26 @@ class RelayIsarDb extends RelayDBExtral {
 
     var since = filter.remove("since");
     if (since != null) {
-      queryBuilder.createdAtGreaterThan(filter['since'] as int);
+      // queryBuilder = queryBuilder.createdAtGreaterThan(since as int);
+      queryBuilderInternal = queryBuilderInternal.addFilterCondition(
+        FilterCondition.greaterThan(property: r'createdAt', value: since),
+      );
     }
 
     var until = filter.remove("until");
     if (until != null) {
-      queryBuilder.createdAtLessThan(filter['until'] as int);
+      // queryBuilder = queryBuilder.createdAtLessThan(until as int);
+      queryBuilderInternal = queryBuilderInternal.addFilterCondition(
+        FilterCondition.lessThan(property: r'createdAt', value: since),
+      );
     }
 
     var search = filter.remove("search");
     if (search != null && search is String) {
-      queryBuilder.contentContains(search);
+      // queryBuilder = queryBuilder.contentContains(search);
+      queryBuilderInternal = queryBuilderInternal.addFilterCondition(
+        FilterCondition.matches(property: r'content', wildcard: search),
+      );
     }
 
     for (var entry in filter.entries) {
@@ -171,15 +241,21 @@ class RelayIsarDb extends RelayDBExtral {
         }
 
         if (tagIndexValues.isNotEmpty) {
-          queryBuilder.group((q) {
-            return q.anyOf(
-              tagIndexValues,
-              (q, v) => q.tagIndexElementEqualTo(v),
-            );
-          });
+          var filterGroup = _genInQuery(tagIndexValues, r'tagIndex');
+          queryBuilderInternal = queryBuilderInternal.addFilterCondition(
+            filterGroup,
+          );
+          // queryBuilder = queryBuilder.group((q) {
+          //   return q.anyOf(
+          //     tagIndexValues,
+          //     (q, v) => q.tagIndexElementEqualTo(v),
+          //   );
+          // });
         }
       }
     }
+
+    return queryBuilderInternal;
   }
 
   @override
@@ -210,19 +286,21 @@ class RelayIsarDb extends RelayDBExtral {
   }
 
   List<Map<String, Object?>> handleQueryResult(List<IsarEvent> events) {
-    return events
-        .map(
-          (event) => {
-            'id': event.id,
-            'pubkey': event.pubkey,
-            'created_at': event.createdAt,
-            'kind': event.kind,
-            'content': event.content,
-            'tags': event.tagsStr != null ? jsonDecode(event.tagsStr!) : [],
-            'sig': event.sig,
-            'sources': event.sources,
-          },
-        )
-        .toList();
+    var list =
+        events
+            .map(
+              (event) => {
+                'id': event.id,
+                'pubkey': event.pubkey,
+                'created_at': event.createdAt,
+                'kind': event.kind,
+                'content': event.content,
+                'tags': event.tagsStr != null ? jsonDecode(event.tagsStr!) : [],
+                'sig': event.sig,
+                'sources': event.sources,
+              },
+            )
+            .toList();
+    return list;
   }
 }
