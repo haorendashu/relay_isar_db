@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer';
 import 'dart:io';
 
 import 'package:isar/isar.dart';
@@ -8,14 +9,14 @@ import 'package:nostr_sdk/utils/later_function.dart';
 import 'package:nostr_sdk/utils/string_util.dart';
 import 'package:relay_isar_db/isar_event.dart';
 
-class RelayIsarDb extends RelayDBExtral with LaterFunction {
+class RelayIsarDB extends RelayDBExtral with LaterFunction {
   static const _dbName = "iasr_db";
 
   Isar isar;
 
-  RelayIsarDb._(this.isar);
+  RelayIsarDB._(this.isar);
 
-  static Future<RelayIsarDb?> init() async {
+  static Future<RelayIsarDB?> init() async {
     var path = await getFilepath();
     print("path $path");
 
@@ -26,7 +27,7 @@ class RelayIsarDb extends RelayDBExtral with LaterFunction {
 
     final isar = await Isar.open([IsarEventSchema], directory: path);
 
-    return RelayIsarDb._(isar);
+    return RelayIsarDB._(isar);
   }
 
   static Future<String> getFilepath() async {
@@ -133,8 +134,8 @@ class RelayIsarDb extends RelayDBExtral with LaterFunction {
     qbi = handleQueryFilter(filter2, qbi);
 
     final events = await qbi.build<IsarEvent>().findAll();
-    // print(filter);
-    // print("events count ${events.length}");
+    // log(jsonEncode(filter));
+    // log("events count ${events.length}");
     return handleQueryResult(events);
   }
 
@@ -216,7 +217,7 @@ class RelayIsarDb extends RelayDBExtral with LaterFunction {
     if (until != null) {
       // queryBuilder = queryBuilder.createdAtLessThan(until as int);
       queryBuilderInternal = queryBuilderInternal.addFilterCondition(
-        FilterCondition.lessThan(property: r'createdAt', value: since),
+        FilterCondition.lessThan(property: r'createdAt', value: until),
       );
     }
 
@@ -233,7 +234,7 @@ class RelayIsarDb extends RelayDBExtral with LaterFunction {
       var vs = entry.value;
 
       List<String> tagIndexValues = [];
-      if (k != "limit") {
+      if (k != "limit" && vs is List) {
         for (var vItem in vs) {
           k = k.replaceFirst("#", "");
           var tagIndexValue = k + '_' + vItem;
@@ -271,10 +272,8 @@ class RelayIsarDb extends RelayDBExtral with LaterFunction {
     String pubkey, {
     List<int>? eventKinds,
   }) async {
-    var queryBuilder = isar.isarEvents
-        .where(sort: Sort.desc)
-        .filter()
-        .pubkeyEqualTo(pubkey);
+    var queryBuilder =
+        isar.isarEvents.where(sort: Sort.desc).filter().pubkeyEqualTo(pubkey);
     if (eventKinds != null && eventKinds.isNotEmpty) {
       queryBuilder = queryBuilder.group((q) {
         return q.anyOf(eventKinds, (q, kind) => q.kindEqualTo(kind));
@@ -286,21 +285,20 @@ class RelayIsarDb extends RelayDBExtral with LaterFunction {
   }
 
   List<Map<String, Object?>> handleQueryResult(List<IsarEvent> events) {
-    var list =
-        events
-            .map(
-              (event) => {
-                'id': event.id,
-                'pubkey': event.pubkey,
-                'created_at': event.createdAt,
-                'kind': event.kind,
-                'content': event.content,
-                'tags': event.tagsStr != null ? jsonDecode(event.tagsStr!) : [],
-                'sig': event.sig,
-                'sources': event.sources,
-              },
-            )
-            .toList();
+    var list = events
+        .map(
+          (event) => {
+            'id': event.id,
+            'pubkey': event.pubkey,
+            'created_at': event.createdAt,
+            'kind': event.kind,
+            'content': event.content,
+            'tags': event.tagsStr != null ? jsonDecode(event.tagsStr!) : [],
+            'sig': event.sig,
+            'sources': event.sources,
+          },
+        )
+        .toList();
     return list;
   }
 }
