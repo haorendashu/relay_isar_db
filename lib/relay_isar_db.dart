@@ -14,10 +14,10 @@ class RelayIsarDB extends RelayDBExtral with LaterFunction {
 
   Isar isar;
 
-  RelayIsarDB._(this.isar);
+  RelayIsarDB._(this.isar, super.appName);
 
-  static Future<RelayIsarDB?> init() async {
-    var path = await getFilepath();
+  static Future<RelayIsarDB?> init(String appName) async {
+    var path = await getFilepath(appName);
     print("path $path");
 
     Directory dir = Directory(path);
@@ -27,11 +27,11 @@ class RelayIsarDB extends RelayDBExtral with LaterFunction {
 
     final isar = await Isar.open([IsarEventSchema], directory: path);
 
-    return RelayIsarDB._(isar);
+    return RelayIsarDB._(isar, appName);
   }
 
-  static Future<String> getFilepath() async {
-    return await DBUtil.getPath(_dbName);
+  static Future<String> getFilepath(String appName) async {
+    return await DBUtil.getPath(appName, _dbName);
   }
 
   // a eventId map in mem, to avoid alway insert event.
