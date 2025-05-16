@@ -27,28 +27,26 @@ class IsarEvent {
       tagsStr = jsonEncode(tags);
 
       // 生成 tagIndex
-      tagIndexList =
-          tags
-              .map((tag) {
-                if (tag is List && tag.length >= 2) {
-                  return "${tag[0]}_${tag[1]}";
-                }
-                return "";
-              })
-              .where((element) => element.isNotEmpty)
-              .toList();
+      tagIndexList = tags
+          .map((tag) {
+            if (tag is List && tag.length >= 2) {
+              return "${tag[0]}_${tag[1]}";
+            }
+            return "";
+          })
+          .where((element) => element.isNotEmpty)
+          .toList();
     }
 
-    final event =
-        IsarEvent()
-          ..id = eventMap['id'] as String?
-          ..pubkey = eventMap['pubkey'] as String?
-          ..createdAt = eventMap['created_at'] as int?
-          ..kind = eventMap['kind'] as int?
-          ..tagsStr = tagsStr
-          ..content = eventMap['content'] as String?
-          ..sig = eventMap['sig'] as String?
-          ..sources = (eventMap['relay'] as List?)?.cast<String>();
+    final event = IsarEvent()
+      ..id = eventMap['id'] as String?
+      ..pubkey = eventMap['pubkey'] as String?
+      ..createdAt = eventMap['created_at'] as int?
+      ..kind = eventMap['kind'] as int?
+      ..tagsStr = tagsStr
+      ..content = eventMap['content'] as String?
+      ..sig = eventMap['sig'] as String?
+      ..sources = (eventMap['sources'] as List?)?.cast<String>();
 
     event.tagIndex = tagIndexList;
 
