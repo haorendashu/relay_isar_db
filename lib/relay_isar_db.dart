@@ -34,23 +34,23 @@ class RelayIsarDB extends RelayDBExtral with LaterFunction {
     return await DBUtil.getPath(appName, _dbName);
   }
 
-  // a eventId map in mem, to avoid alway insert event.
-  Map<String, int> _memEventIdMap = {};
+  // // a eventId map in mem, to avoid alway insert event.
+  // Map<String, int> _memEventIdMap = {};
 
-  bool checkAndSetEventFromMem(Map<String, dynamic> event) {
-    var id = event["id"];
-    var value = _memEventIdMap[id];
-    _memEventIdMap[id] = 1;
-    return value != null;
-  }
+  // bool checkAndSetEventFromMem(Map<String, dynamic> event) {
+  //   var id = event["id"];
+  //   var value = _memEventIdMap[id];
+  //   _memEventIdMap[id] = 1;
+  //   return value != null;
+  // }
 
   List<IsarEvent> penddingEventMspList = [];
 
   @override
   Future<int> addEvent(Map<String, dynamic> event) async {
-    if (checkAndSetEventFromMem(event)) {
-      return 0;
-    }
+    // if (checkAndSetEventFromMem(event)) {
+    //   return 0;
+    // }
 
     var e = IsarEvent.loadFromMap(event);
     penddingEventMspList.add(e);
@@ -69,10 +69,51 @@ class RelayIsarDB extends RelayDBExtral with LaterFunction {
     // clear pendding list
     penddingEventMspList.clear();
 
+    List<int> eventIds = [];
+    Map<int, IsarEvent> eventMap = {};
+    for (var event in currentList) {
+      eventIds.add(event.isarId);
+      eventMap[event.isarId] = event;
+    }
+
+    List<IsarEvent> needPutEvents = [];
+    var events = await isar.isarEvents.getAll(eventIds);
+    for (var oldEvent in events) {
+      if (oldEvent == null) {
+        continue;
+      }
+
+      var newEvent = eventMap.remove(oldEvent.isarId);
+      if (newEvent != null) {
+        // newEvent and oldEvent both exist!
+        // check the sources.
+        if (newEvent.sources == null || newEvent.sources!.isEmpty) {
+          continue;
+        }
+
+        var newSource = newEvent.sources!.first;
+        if (oldEvent.sources == null || oldEvent.sources!.isEmpty) {
+          oldEvent.sources = [newSource];
+          needPutEvents.add(oldEvent);
+        } else {
+          if (oldEvent.sources!.contains(newSource)) {
+            oldEvent.sources!.add(newSource);
+            needPutEvents.add(oldEvent);
+          }
+        }
+      }
+    }
+    // these events need to add
+    if (eventMap.isNotEmpty) {
+      needPutEvents.addAll(eventMap.values);
+    }
+
     // batch add events
-    await isar.writeTxn(() async {
-      await isar.isarEvents.putAll(currentList);
-    });
+    if (needPutEvents.isNotEmpty) {
+      await isar.writeTxn(() async {
+        await isar.isarEvents.putAll(needPutEvents);
+      });
+    }
   }
 
   @override
