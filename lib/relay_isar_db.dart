@@ -34,23 +34,26 @@ class RelayIsarDB extends RelayDBExtral with LaterFunction {
     return await DBUtil.getPath(appName, _dbName);
   }
 
-  // // a eventId map in mem, to avoid alway insert event.
-  // Map<String, int> _memEventIdMap = {};
+  // a eventId map in mem, to avoid alway insert event.
+  Map<String, int> _memEventIdMap = {};
 
-  // bool checkAndSetEventFromMem(Map<String, dynamic> event) {
-  //   var id = event["id"];
-  //   var value = _memEventIdMap[id];
-  //   _memEventIdMap[id] = 1;
-  //   return value != null;
-  // }
+  bool checkAndSetEventFromMem(Map<String, dynamic> event) {
+    var id = event["id"];
+    var value = _memEventIdMap[id];
+    _memEventIdMap[id] = 1;
+    return value != null;
+  }
 
   List<IsarEvent> penddingEventMspList = [];
 
   @override
   Future<int> addEvent(Map<String, dynamic> event) async {
-    // if (checkAndSetEventFromMem(event)) {
-    //   return 0;
-    // }
+    var sources = event["sources"];
+    if (checkAndSetEventFromMem(event) &&
+        (sources == null || (sources is List && sources.isEmpty))) {
+      // event had added and source is null or empty, skip.
+      return 0;
+    }
 
     var e = IsarEvent.loadFromMap(event);
     penddingEventMspList.add(e);
