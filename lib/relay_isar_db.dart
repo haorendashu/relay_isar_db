@@ -96,8 +96,8 @@ class RelayIsarDB extends RelayDBExtral with LaterFunction {
           oldEvent.sources = [newSource];
           needPutEvents.add(oldEvent);
         } else {
-          if (oldEvent.sources!.contains(newSource)) {
-            oldEvent.sources!.add(newSource);
+          if (!(oldEvent.sources!.contains(newSource))) {
+            oldEvent.sources = [...oldEvent.sources!, newSource];
             needPutEvents.add(oldEvent);
           }
         }
