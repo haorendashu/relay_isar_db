@@ -16,7 +16,8 @@ class RelayIsarDB extends RelayDBExtral with LaterFunction {
 
   RelayIsarDB._(this.isar, super.appName);
 
-  static Future<RelayIsarDB?> init(String appName) async {
+  static Future<RelayIsarDB?> init(String appName,
+      {int maxSizeMiB = Isar.defaultMaxSizeMiB * 100}) async {
     var path = await getFilepath(appName);
     print("path $path");
 
@@ -25,7 +26,11 @@ class RelayIsarDB extends RelayDBExtral with LaterFunction {
       await dir.create(recursive: true);
     }
 
-    final isar = await Isar.open([IsarEventSchema], directory: path);
+    final isar = await Isar.open(
+      [IsarEventSchema],
+      directory: path,
+      maxSizeMiB: maxSizeMiB, // set max size 100GB
+    );
 
     return RelayIsarDB._(isar, appName);
   }

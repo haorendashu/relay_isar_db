@@ -10,12 +10,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  isar:
-    hosted: https://pub.isar-community.dev
-    version: 3.1.8
-  isar_flutter_libs:
-    hosted: https://pub.isar-community.dev
-    version: 3.1.8
+  # isar:
+  #   hosted: https://pub.isar-community.dev
+  #   version: 3.1.8
+  # isar_flutter_libs:
+  #   hosted: https://pub.isar-community.dev
+  #   version: 3.1.8
+  isar_community: ^3.3.0
+  isar_community_flutter_libs: ^3.3.0
   nostr_sdk:
     path: ../nostr_sdk
 
