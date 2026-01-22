@@ -57,14 +57,14 @@ class RelayIsarDB extends RelayDBExtral with LaterFunction {
     if (checkAndSetEventFromMem(event) &&
         (sources == null || (sources is List && sources.isEmpty))) {
       // event had added and source is null or empty, skip.
-      return 0;
+      return -1;
     }
 
     var e = IsarEvent.loadFromMap(event);
     penddingEventMspList.add(e);
     later(_batchAddEvents);
 
-    return 0;
+    return 1;
   }
 
   Future<void> _batchAddEvents() async {
