@@ -111,7 +111,7 @@ const IsarEventSchema = CollectionSchema(
   getId: _isarEventGetId,
   getLinks: _isarEventGetLinks,
   attach: _isarEventAttach,
-  version: '3.1.8',
+  version: '3.3.0',
 );
 
 int _isarEventEstimateSize(

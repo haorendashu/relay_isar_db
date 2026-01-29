@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:developer';
 import 'dart:io';
 
-import 'package:isar/isar.dart';
+import 'package:isar_community/isar.dart';
 import 'package:nostr_sdk/relay_local/relay_db_extral.dart';
 import 'package:nostr_sdk/utils/db_util.dart';
 import 'package:nostr_sdk/utils/later_function.dart';
