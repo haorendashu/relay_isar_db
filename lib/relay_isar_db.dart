@@ -6,6 +6,7 @@ import 'package:isar_community/isar.dart';
 import 'package:nostr_sdk/relay_local/relay_db_extral.dart';
 import 'package:nostr_sdk/utils/db_util.dart';
 import 'package:nostr_sdk/utils/later_function.dart';
+import 'package:nostr_sdk/utils/platform_util.dart';
 import 'package:nostr_sdk/utils/string_util.dart';
 import 'package:relay_isar_db/isar_event.dart';
 
@@ -24,6 +25,10 @@ class RelayIsarDB extends RelayDBExtral with LaterFunction {
     Directory dir = Directory(path);
     if (!await dir.exists()) {
       await dir.create(recursive: true);
+    }
+
+    if (PlatformUtil.isIOS()) {
+      maxSizeMiB = Isar.defaultMaxSizeMiB * 10;
     }
 
     final isar = await Isar.open(
